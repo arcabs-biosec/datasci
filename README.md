@@ -1,6 +1,6 @@
 # datasci
 
-**Katrina Mae A. Cabalar**
+# Katrina Mae A. Cabalar
 
 BIO-SEC
 
