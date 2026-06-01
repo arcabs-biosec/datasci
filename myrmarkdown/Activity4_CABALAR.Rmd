@@ -1,0 +1,90 @@
+---
+title: "Activity 4: Tidyverse"
+author: "Katrina Mae A. Cabalar"
+date: "01 June 2026"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+## 1. Load the tidyverse Package
+
+```{r load-tidyverse}
+library(tidyverse)
+```
+
+## 2. Read in the Dataset
+
+Load the habitat types CSV file as a dataframe.
+
+```{r load-data}
+df <- read_csv("~/Desktop/habitat_types.csv")
+```
+
+## 3. Inspect the Data Structure
+
+Use `glimpse()`, the tidyverse equivalent of `str()`, to inspect column names, data types, and sample values.
+
+```{r glimpse}
+glimpse(df)
+```
+
+## 4. Select Relevant Columns
+
+Subset the data by keeping only Transect, Htypes, SmallTrees, and FloweringTrees.
+
+```{r select-cols}
+sel_df <- df %>%
+  select(Transect, Htypes, SmallTrees, FloweringTrees)
+```
+
+## 5. Filter CVT and Sort by SmallTrees
+
+Filter rows where the habitat type is "CVT," then sort SmallTrees in descending order to identify the transect with the most small trees.
+
+```{r filter-cvt}
+sel_df %>%
+  filter(Htypes == "CVT") %>%
+  arrange(desc(SmallTrees))
+```
+
+## 6. Mean Flowering Trees per Habitat Type
+
+Calculate the average number of flowering trees for each habitat type.
+
+```{r mean-flowering}
+df %>%
+  group_by(Htypes) %>%
+  summarise(mean_FloweringTrees = mean(FloweringTrees))
+```
+
+## 7. Add HerbGroundDiff Column
+
+Create a new column `HerbGroundDiff` representing the difference between HerbsCover and GroundCover. Assign the result to `sel_df_mod`, then identify transects with no difference (i.e., HerbGroundDiff == 0).
+
+```{r herb-ground-diff}
+sel_df_mod <- df %>%
+  select(Transect, Htypes, SmallTrees, FloweringTrees, HerbsCover, GroundCover) %>%
+  mutate(HerbGroundDiff = HerbsCover - GroundCover) %>%
+  select(Transect, Htypes, SmallTrees, FloweringTrees, HerbGroundDiff)
+
+# Transects with no difference
+sel_df_mod %>%
+  filter(HerbGroundDiff == 0)
+```
+
+## 8. Pivot to Wide Format
+
+Reshape `sel_df_mod` from long to wide format so each habitat type becomes its own set of columns.
+
+```{r pivot-wider}
+sel_df_wide <- sel_df_mod %>%
+  pivot_wider(
+    names_from  = Htypes,
+    values_from = c(SmallTrees, FloweringTrees, HerbGroundDiff)
+  )
+
+sel_df_wide
+```
