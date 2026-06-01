@@ -1,4 +1,4 @@
-# datasci
+# Data Science Laboratory Outputs
 
 # Katrina Mae A. Cabalar
 
