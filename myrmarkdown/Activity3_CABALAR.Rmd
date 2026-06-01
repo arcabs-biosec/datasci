@@ -1,0 +1,179 @@
+---
+title: "Activity 3: Summary statistics, frequency distribution, and basic graphical representation"
+author: "Katrina Mae A. Cabalar"
+date: "01 June 2026"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+## 1. Load the Dataset
+
+Read in the herpetozoa CSV file and preview the first few rows.
+
+```{r load-data}
+herp <- read.csv("~/Desktop/herpetozoa-033-095-s001.csv")
+head(herp)
+nrow(herp)
+```
+
+## 2. Clean the Dataset
+
+Remove rows with empty Sites and rows with missing values, then confirm the new row count.
+
+```{r clean-data}
+herp <- herp[herp$Sites != "", ]
+herp <- na.omit(herp)
+nrow(herp)
+head(herp)
+str(herp)
+```
+
+## 3. Elevation Summary Statistics
+
+Calculate the mean, standard deviation, and range of elevation across all sites.
+
+```{r elevation-stats}
+elev <- herp$Elev
+mean(elev)
+sd(elev)
+range(elev)
+```
+
+## 4. Species Totals Using a Loop
+
+Sum the count for each species using a for loop across species columns (columns 7 to 33).
+
+```{r species-loop}
+species_data <- herp[, 7:33]
+
+species_totals_loop <- c()
+for (i in 1:ncol(species_data)) {
+  species_totals_loop[i] <- sum(species_data[, i])
+}
+names(species_totals_loop) <- colnames(species_data)
+print(species_totals_loop)
+```
+
+## 5. Species Totals Using sapply
+
+Repeat the same computation more concisely using `sapply()`.
+
+```{r species-sapply}
+species_totals_sapply <- sapply(species_data, sum)
+species_totals_sapply
+```
+
+## 6. Most and Fewest Observed Species
+
+Identify which species has the highest and lowest total observation count.
+
+```{r most-fewest}
+names(which.max(species_totals_sapply))
+max(species_totals_sapply)
+
+names(which.min(species_totals_sapply))
+min(species_totals_sapply)
+
+most_sp   <- names(which.max(species_totals_sapply))
+fewest_sp <- names(which.min(species_totals_sapply))
+```
+
+## 7. Mean Counts by Habitat Type
+
+Calculate the mean count of the most and fewest observed species per habitat type.
+
+```{r habitat-means}
+habitat_sp <- data.frame(
+  Htypes = herp$Htypes,
+  Most   = herp[, most_sp],
+  Fewest = herp[, fewest_sp]
+)
+
+mean_most   <- tapply(habitat_sp$Most,   habitat_sp$Htypes, mean)
+mean_fewest <- tapply(habitat_sp$Fewest, habitat_sp$Htypes, mean)
+
+mean_most
+mean_fewest
+
+names(which.max(mean_most))
+```
+
+## 8. Scatter Plot: Elevation vs. Total Species Count
+
+Visualize the relationship between elevation and total species count, colored by habitat type.
+
+```{r scatter-plot}
+scatter_data <- data.frame(
+  Elev     = herp$Elev,
+  SPPTotal = herp$SPPTotal,
+  Htypes   = herp$Htypes
+)
+
+habitat_colors <- c("ASG" = "pink",
+                    "ESG" = "skyblue",
+                    "OGF" = "violet",
+                    "CVT" = "orange")
+
+point_colors <- habitat_colors[scatter_data$Htypes]
+
+plot(scatter_data$Elev, scatter_data$SPPTotal,
+     col  = point_colors,
+     pch  = 16,
+     xlab = "Elevation (m)",
+     ylab = "Total Species Count (SPPTotal)",
+     main = "Elevation vs. Total Species Count by Habitat Type")
+
+legend("topright",
+       legend = names(habitat_colors),
+       col    = habitat_colors,
+       pch    = 16,
+       title  = "Habitat Type")
+```
+
+## 9. Sites with Zero Species Observations
+
+Identify which habitat types have sites with zero observed species.
+
+```{r zero-obs}
+zero_obs <- scatter_data[scatter_data$SPPTotal == 0, "Htypes"]
+cat("Habitat types with zero species observations:\n")
+unique(zero_obs)
+```
+
+## 10. Bar Plot: Total Species per Habitat Type
+
+Summarize and visualize total species counts per habitat type.
+
+```{r barplot}
+habitat_totals <- tapply(scatter_data$SPPTotal, scatter_data$Htypes, sum)
+
+barplot(habitat_totals,
+        xlab   = "Habitat Type",
+        ylab   = "Total Species Count",
+        main   = "Total Species Observed per Habitat Type",
+        col    = c("pink", "skyblue", "violet", "orange"),
+        border = "black",
+        ylim   = c(0, max(habitat_totals) + 20))
+
+text(x      = barplot(habitat_totals, plot = FALSE),
+     y      = habitat_totals + 5,
+     labels = habitat_totals,
+     cex    = 0.9)
+```
+
+## 11. Histogram: Distribution of Total Species Counts
+
+Examine the frequency distribution of total species counts across all sites.
+
+```{r histogram}
+hist(herp$SPPTotal,
+     xlab   = "Total Species Count (SPPTotal)",
+     ylab   = "Frequency (Number of Sites)",
+     main   = "Histogram of Total Species Counts",
+     col    = "steelblue",
+     border = "white",
+     breaks = 8)
+```
