@@ -2,9 +2,9 @@
 
 **Katrina Mae A. Cabalar**
 
-/BIO-SEC
+BIO-SEC
 
-/LBBBI27
+LBBBI27
 
 Activity 3: https://arcabs-biosec.github.io/datasci/myrmarkdown/Activity3_CABALAR.html
 
