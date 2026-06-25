@@ -11,3 +11,5 @@ Activity 3: https://arcabs-biosec.github.io/datasci/myrmarkdown/Activity3_CABALA
 Activity 4: https://arcabs-biosec.github.io/datasci/myrmarkdown/Activity4_CABALAR.html
 
 Activity 7: https://arcabs-biosec.github.io/datasci/myrmarkdown/Activity7_CABALAR.html
+
+Activity 9: https://arcabs-biosec.github.io/datasci/myrmarkdown/Cabalar_hclust.html
