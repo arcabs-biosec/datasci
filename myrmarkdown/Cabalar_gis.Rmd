@@ -1,0 +1,267 @@
+---
+title: "Distribution Mapping of the Philippine Tarsier (*Carlito syrichta*)"
+author: "Katrina Mae A. Cabalar"
+date: "25 June 2026"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+## Load Packages
+
+```{r packages}
+library(sf)
+library(terra)
+library(ggplot2)
+library(dplyr)
+library(ggnewscale)
+```
+
+## A1. Load and Clean Occurrence Data
+
+```{r load-data}
+raw_df <- read.csv(
+  "~/Desktop/0073024-260519110011954.csv",
+  sep      = "\t",
+  header   = TRUE,
+  quote    = "",
+  fill     = TRUE,
+  encoding = "UTF-8"
+)
+
+# Remove rows with missing coordinates
+good    <- complete.cases(raw_df[ , c("decimalLatitude", "decimalLongitude")])
+cleaned <- raw_df[good, ]
+cat("Records after removing NAs:", nrow(cleaned), "\n")
+```
+
+## A2. Remove Records Outside the Philippines
+
+```{r filter-bbox}
+ph_lon_min <- 116; ph_lon_max <- 127
+ph_lat_min <-   4; ph_lat_max <-  22
+
+cleaned <- cleaned %>%
+  filter(
+    decimalLongitude >= ph_lon_min,
+    decimalLongitude <= ph_lon_max,
+    decimalLatitude  >= ph_lat_min,
+    decimalLatitude  <= ph_lat_max
+  )
+cat("Records after spatial filtering (PH bounding box):", nrow(cleaned), "\n")
+
+cleaned <- cleaned %>%
+  filter(countryCode == "PH")
+cat("Records after country code filter:", nrow(cleaned), "\n")
+
+head(cleaned[ , c("gbifID", "species", "stateProvince",
+                  "decimalLatitude", "decimalLongitude",
+                  "year", "basisOfRecord")], 10)
+```
+
+## A3. Convert to Spatial Object
+
+```{r make-sf}
+occ_sf <- st_as_sf(
+  cleaned,
+  coords = c("decimalLongitude", "decimalLatitude"),
+  crs    = 4326
+)
+cat("CRS of occurrence points:", st_crs(occ_sf)$Name, "\n")
+cat("Total occurrence points:", nrow(occ_sf), "\n")
+```
+
+## A4. Load Provincial Boundaries and Subset Tarsier Provinces
+
+```{r provinces}
+phl_adm1 <- st_read("~/Desktop/PHL_adm/PHL_adm1.shp", quiet = TRUE)
+cat("Province shapefile CRS:", st_crs(phl_adm1)$Name, "\n")
+
+# Match CRS and fix invalid geometries
+occ_sf   <- st_transform(occ_sf, st_crs(phl_adm1))
+phl_adm1 <- st_make_valid(phl_adm1)
+
+# Spatial join to find which province each point falls in
+pts_province <- st_join(occ_sf, phl_adm1[ , "NAME_1"], join = st_within)
+
+# Get unique province names with records
+province_names <- pts_province %>%
+  st_drop_geometry() %>%
+  filter(!is.na(NAME_1)) %>%
+  distinct(NAME_1) %>%
+  pull(NAME_1)
+
+cat("\nProvinces with Tarsier records:\n")
+print(sort(province_names))
+
+# Subset shapefile to those provinces only
+tarsier_provinces <- phl_adm1 %>%
+  filter(NAME_1 %in% province_names)
+
+cat("\nNumber of provinces subsetted:", nrow(tarsier_provinces), "\n")
+```
+
+## A5. Clip DEM to Tarsier Provinces
+
+```{r clip-dem}
+phil_dem <- rast("~/Desktop/ph_strm_geo.tif")
+cat("DEM CRS:", crs(phil_dem, describe = TRUE)$name, "\n")
+cat("DEM extent:", as.character(ext(phil_dem)), "\n")
+cat("DEM layers:", nlyr(phil_dem), "\n")
+
+# Reproject provinces to match DEM CRS
+tarsier_prov_proj <- st_transform(tarsier_provinces, crs(phil_dem))
+
+# Crop and mask
+dem_clipped        <- crop(phil_dem, tarsier_prov_proj) |> mask(tarsier_prov_proj)
+names(dem_clipped) <- "elevation"
+cat("Clipped DEM extent:", as.character(ext(dem_clipped)), "\n")
+```
+
+## B. Create the Distribution Map
+
+```{r prep-map-data}
+# Convert DEM to data frame for ggplot
+dem_df <- as.data.frame(dem_clipped, xy = TRUE)
+dem_df <- dem_df[!is.na(dem_df$elevation), ]
+
+# Reproject layers to match DEM CRS
+occ_plot  <- st_transform(occ_sf, crs(dem_clipped))
+prov_plot <- st_transform(tarsier_provinces, crs(dem_clipped))
+phl_bg    <- st_transform(phl_adm1, crs(dem_clipped))
+
+# Keep only points within subsetted provinces
+occ_in_prov <- st_join(occ_plot, prov_plot[ , "NAME_1"], join = st_within) %>%
+  filter(!is.na(NAME_1))
+
+cat("Points used in final map:", nrow(occ_in_prov), "\n")
+```
+
+```{r final-map, fig.width=10, fig.height=9}
+elev_colors <- c("#1a6b6b", "#5aaa7c", "#b8d96c",
+                 "#f5d76e", "#e07b39", "#8b1a1a")
+
+tarsier_map <- ggplot() +
+
+  # Layer 1: DEM
+  geom_tile(
+    data = dem_df,
+    aes(x = x, y = y, fill = elevation),
+    show.legend = TRUE
+  ) +
+  scale_fill_gradientn(
+    colors = elev_colors,
+    name   = "Elevation (m)",
+    guide  = guide_colorbar(
+      title.position = "top",
+      barwidth       = 0.8,
+      barheight      = 6
+    )
+  ) +
+
+  # Layer 2: Province outlines
+  geom_sf(
+    data      = prov_plot,
+    fill      = NA,
+    color     = "white",
+    linewidth = 0.5
+  ) +
+
+  # Layer 3: Province labels
+  geom_sf_text(
+    data          = prov_plot,
+    aes(label     = NAME_1),
+    size          = 2.3,
+    color         = "white",
+    fontface      = "bold",
+    check_overlap = TRUE
+  ) +
+
+  # Layer 4: Occurrence points
+  new_scale_fill() +
+  geom_sf(
+    data   = occ_in_prov,
+    aes(fill = basisOfRecord),
+    shape  = 21,
+    color  = "white",
+    size   = 2.4,
+    stroke = 0.6,
+    alpha  = 0.88
+  ) +
+  scale_fill_manual(
+    values = c(
+      "PRESERVED_SPECIMEN"  = "#e63946",
+      "HUMAN_OBSERVATION"   = "#ffd166",
+      "MACHINE_OBSERVATION" = "#06d6a0",
+      "LITERATURE"          = "#118ab2"
+    ),
+    name   = "Record Type",
+    labels = c(
+      "PRESERVED_SPECIMEN"  = "Museum Specimen",
+      "HUMAN_OBSERVATION"   = "Field Observation",
+      "MACHINE_OBSERVATION" = "Machine Observation",
+      "LITERATURE"          = "Literature"
+    ),
+    guide  = guide_legend(
+      title.position = "top",
+      override.aes   = list(size = 3.5)
+    )
+  ) +
+
+  coord_sf(expand = FALSE) +
+  labs(
+    title    = expression(bold("Distribution of Philippine Tarsier") ~
+                            italic("(Carlito syrichta)")),
+    subtitle = paste0(
+      "Class: Mammalia  |  Order: Primates  |  Family: Tarsiidae\n",
+      "n = ", nrow(occ_in_prov), " georeferenced occurrence records (GBIF)"
+    ),
+    x       = "Longitude (°E)",
+    y       = "Latitude (°N)",
+    caption = paste0(
+      "Data sources: GBIF Occurrence Download (2026) | ",
+      "DIVA-GIS PHL Admin Boundaries | Ph STRM DEM\n",
+      "Coordinate Reference System: WGS 84"
+    )
+  ) +
+  theme_bw(base_size = 11) +
+  theme(
+    plot.title    = element_text(size = 14, face = "bold",
+                                 hjust = 0.5, color = "#1a1a2e"),
+    plot.subtitle = element_text(size = 9, hjust = 0.5,
+                                 color = "gray40", margin = margin(b = 8)),
+    plot.caption  = element_text(size = 7, color = "gray55",
+                                 hjust = 0, margin = margin(t = 6)),
+    axis.title    = element_text(size = 9, color = "gray30"),
+    axis.text     = element_text(size = 8, color = "gray40"),
+    legend.position   = "right",
+    legend.box        = "vertical",
+    legend.title      = element_text(size = 8.5, face = "bold"),
+    legend.text       = element_text(size = 8),
+    legend.background = element_rect(fill = "white", color = "gray80",
+                                     linewidth = 0.3),
+    legend.margin     = margin(4, 6, 4, 6),
+    panel.background  = element_rect(fill = "#d0e8f5"),
+    panel.border      = element_rect(color = "gray30", linewidth = 0.7),
+    panel.grid.major  = element_line(color = "white", linewidth = 0.3,
+                                     linetype = "dashed")
+  )
+
+print(tarsier_map)
+```
+
+## Save the Map
+
+```{r save-map}
+ggsave(
+  filename = "Surname_tarsier_distribution_map.png",
+  plot     = tarsier_map,
+  width    = 10,
+  height   = 9,
+  dpi      = 300,
+  bg       = "white"
+)
+cat("Map saved successfully!\n")
+```
