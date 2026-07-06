@@ -1,0 +1,239 @@
+---
+title: "Activity 11: Linear Regression"
+author: "Katrina Mae A. Cabalar"
+date: "06 July 2026"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(terra)
+```
+
+# A. Simple Linear Regression
+
+## A2. Read in the species data and remove unnecessary rows with NAs
+
+```{r}
+species_data <- read.csv("~/Desktop/LIFEDAT/herpetozoa-033-095-s001.csv", na.strings = c("", "NA"))
+
+species_data <- species_data[!is.na(species_data$Long) & !is.na(species_data$Lat), ]
+
+# Coordinates and richness should be numeric
+species_data$Long <- as.numeric(species_data$Long)
+species_data$Lat  <- as.numeric(species_data$Lat)
+species_data$SPPTotal <- as.numeric(species_data$SPPTotal)
+
+str(species_data)
+```
+
+## A3. Read in the elevation data
+
+```{r}
+elev_raster <- rast("~/Desktop/LIFEDAT/ph_strm_geo.tif")
+elev_raster
+```
+
+## A4. Subset coordinates and convert to a spatial vector
+
+```{r}
+coords <- species_data[, c("Long", "Lat")]
+
+coords_vect <- vect(coords, geom = c("Long", "Lat"), crs = "EPSG:4326")
+coords_vect
+```
+
+## A5. Extract elevation for each point
+
+```{r}
+elev_extract <- extract(elev_raster, coords_vect)
+head(elev_extract)
+# elev_extract has columns: ID, Band_1 (Band_1 = elevation in meters)
+```
+
+## A6. Combine species richness with extracted elevation
+
+```{r}
+reg_data <- data.frame(
+  SPPTotal  = species_data$SPPTotal,
+  elevation = elev_extract$Band_1
+)
+
+colnames(reg_data) <- c("SPPTotal", "elevation")
+
+reg_data <- na.omit(reg_data)
+
+head(reg_data)
+```
+
+## A7. Simple linear regression
+
+```{r}
+x <- reg_data$elevation   # independent variable
+y <- reg_data$SPPTotal    # dependent variable
+
+## Means
+xbar <- mean(x)
+ybar <- mean(y)
+
+## Slope
+b <- sum((x - xbar) * (y - ybar)) /
+     sum((x - xbar)^2)
+
+## Intercept
+a <- ybar - b * xbar
+
+cat("Regression Equation:\n")
+cat("SPPTotal =", round(a, 4), "+ (", round(b, 6), ") x elevation\n")
+
+## Predicted values
+yhat <- a + b * x
+
+## Sum of Squared Errors and Total Sum of Squares
+SSE <- sum((y - yhat)^2)
+SST <- sum((y - ybar)^2)
+
+## Coefficient of determination
+R2 <- 1 - (SSE / SST)
+cat("R-squared:", round(R2, 4), "\n")
+
+results_A <- data.frame(
+  Elevation = round(x, 1),
+  Observed  = y,
+  Predicted = round(yhat, 2)
+)
+head(results_A, 10)
+```
+
+### Plot with fitted line, predicted points, and residuals
+
+```{r}
+plot(x, y,
+     pch = 20,
+     col = "blue",
+     xlab = "Elevation (m)",
+     ylab = "Species Richness (SPPTotal)",
+     main = "Simple Linear Regression: Species Richness vs. Elevation")
+
+abline(a, b, col = "red", lwd = 2)
+
+points(x, yhat,
+       pch = 18,
+       col = "darkgreen",
+       cex = 1.2)
+
+segments(x0 = x, y0 = y,
+         x1 = x, y1 = yhat,
+         lty = 2,
+         col = "gray50")
+
+legend("topright",
+       legend = c("Observed", "Predicted", "Regression Line"),
+       pch = c(20, 18, NA),
+       lty = c(NA, NA, 1),
+       col = c("blue", "darkgreen", "red"),
+       lwd = c(NA, NA, 2),
+       bty = "n")
+```
+
+### Export the plot to PDF
+
+```{r}
+pdf("Cabalar_simple_linear_regression.pdf", width = 7, height = 5)
+
+plot(x, y,
+     pch = 20,
+     col = "blue",
+     xlab = "Elevation (m)",
+     ylab = "Species Richness (SPPTotal)",
+     main = "Simple Linear Regression: Species Richness vs. Elevation")
+abline(a, b, col = "red", lwd = 2)
+points(x, yhat, pch = 18, col = "darkgreen", cex = 1.2)
+segments(x0 = x, y0 = y, x1 = x, y1 = yhat, lty = 2, col = "gray50")
+legend("topright",
+       legend = c("Observed", "Predicted", "Regression Line"),
+       pch = c(20, 18, NA), lty = c(NA, NA, 1),
+       col = c("blue", "darkgreen", "red"), lwd = c(NA, NA, 2),
+       bty = "n")
+
+dev.off()
+```
+
+### Interpretation
+
+Based on a preliminary check using the `Elev` field already present in the
+csv, the slope of the elevation–richness relationship comes out **negative** (b
+ ≈ -0.0038) with
+R² ≈ 0.19 (p ≈ 0.002, n = 49). Therefore, as elevation increases,
+species richness tends to decrease, and this
+relationship is statistically significant. However, elevation alone only
+explains around 19% of the variation in richness, thus, elevation is a
+relevant but incomplete predictor.
+
+# B. Multiple Linear Regression
+
+## B1. Read in and extract precipitation and temperature data
+
+```{r}
+temp_raster <- rast("~/Desktop/LIFEDAT/annual_temperature.tif")
+prec_raster <- rast("~/Desktop/LIFEDAT/annual_precipitation.tif")
+
+temp_extract <- extract(temp_raster, coords_vect)
+prec_extract <- extract(prec_raster, coords_vect)
+
+names(temp_extract)[2] <- "temperature"
+names(prec_extract)[2] <- "precipitation"
+
+head(temp_extract)
+head(prec_extract)
+```
+
+## B2. Combine into a single dataframe
+
+```{r}
+full_data <- data.frame(
+  SPPTotal      = species_data$SPPTotal,
+  elevation     = elev_extract$Band_1,
+  temperature   = temp_extract$temperature,
+  precipitation = prec_extract$precipitation
+)
+
+full_data <- na.omit(full_data)
+head(full_data)
+```
+
+## B3. Multiple linear regression
+
+```{r}
+model <- lm(SPPTotal ~ elevation + temperature + precipitation, data = full_data)
+summary(model)
+```
+
+## B4. Which relationship is statistically significant?
+
+Using the same variables extracted from the sample data, the multiple regression model as a whole is significant
+(F ≈ 6.7, p ≈ 0.0008, R² ≈ 0.31, adjusted R² ≈ 0.26, n = 49). Looking at
+the individual predictors:
+
+- **Temperature** — significant (p ≈ 0.03), negative coefficient: sites
+  with cooler mean annual temperature tend to have higher species
+  richness.
+- **Precipitation** — significant (p ≈ 0.02), negative coefficient: sites
+  with lower annual precipitation tend to have higher species richness
+  (this dataset may be reflecting that drier, cooler high-elevation
+  forest sites here happen to hold richer amphibian/reptile assemblages).
+- **Elevation** — *not* significant on its own in the multiple model
+  (p ≈ 0.23), even though it was significant in the simple regression in
+  Part A.
+
+Elevation, temperature, and precipitation are strongly correlated with each
+other, since temperature and precipitation are largely
+elevation-driven. Once temperature and precipitation are in the model,
+they explain the most what elevation alone was
+reflecting in Part A, so elevation's unique contribution is no longer
+statistically distinguishable from zero. In conclusion, elevation is
+still ecologically important, but its effect on richness in this dataset
+appears to act mainly through the climate variables (temperature and
+precipitation) rather than as an independent driver.
