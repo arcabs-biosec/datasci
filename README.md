@@ -19,3 +19,4 @@ Activity 10: https://arcabs-biosec.github.io/datasci/myrmarkdown/Cabalar_gis.htm
 Activity 11: https://arcabs-biosec.github.io/datasci/myrmarkdown/Cabalar_linear_reg.html
 
 Activity 12: https://arcabs-biosec.github.io/datasci/myrmarkdown/Cabalar_logistic_reg.html
+
