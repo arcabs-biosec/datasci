@@ -1,0 +1,160 @@
+---
+title: "Activity 12: Multiple Logistic Regression"
+author: "Katrina Mae A. Cabalar"
+date: "13 July 2026"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(terra)
+library(ggplot2)
+```
+
+## Read and clean data
+
+```{r read-data}
+mousedeer <- read.csv("~/Desktop/LIFEDAT/ph_mouse_deer.csv", stringsAsFactors = FALSE)
+str(mousedeer)
+
+mousedeer <- mousedeer[complete.cases(mousedeer), ]
+nrow(mousedeer)
+```
+
+## Locality map
+
+```{r locality-map, fig.width=8, fig.height=7}
+r <- rast("~/Desktop/LIFEDAT/ph_strm_geo.tif")
+
+buf <- 0.06
+e <- ext(min(mousedeer$Longitude) - buf, max(mousedeer$Longitude) + buf,
+         min(mousedeer$Latitude)  - buf, max(mousedeer$Latitude)  + buf)
+
+r_crop <- crop(r, e)
+r_crop[r_crop == 32767] <- NA
+r_crop[r_crop <= 0] <- NA
+
+r_df <- as.data.frame(r_crop, xy = TRUE)
+names(r_df)[3] <- "elevation"
+
+mousedeer$DetectStatus <- factor(mousedeer$Detected, levels = c(0, 1),
+                                  labels = c("Not detected", "Detected"))
+
+p_map <- ggplot() +
+  geom_tile(data = r_df, aes(x = x, y = y, fill = elevation),
+            width = res(r_crop)[1], height = res(r_crop)[2]) +
+  scale_fill_gradientn(colors = terrain.colors(50), name = "Elevation (m)",
+                        na.value = "#a8cbe3") +
+  geom_point(data = mousedeer,
+             aes(x = Longitude, y = Latitude, color = DetectStatus, shape = DetectStatus),
+             size = 3, stroke = 1.2) +
+  scale_color_manual(values = c("Not detected" = "red", "Detected" = "blue"), name = NULL) +
+  scale_shape_manual(values = c("Not detected" = 4, "Detected" = 16), name = NULL) +
+  coord_equal() +
+  labs(title = "Mouse Deer Survey Localities\nBalabac Island Group, Palawan",
+       x = "Longitude", y = "Latitude") +
+  theme_minimal() +
+  theme(legend.position = "right")
+
+p_map
+ggsave("locality_map.pdf", p_map, width = 8, height = 7)
+```
+
+## Fit the logistic regression model
+
+```{r fit-model}
+mousedeer$Habitat <- factor(mousedeer$Habitat,
+                             levels = c("CVT", "ESG", "ASG", "OGF"))
+
+model <- glm(Detected ~ Habitat + Effort + AverageDistance,
+             data = mousedeer, family = binomial(link = "logit"))
+```
+
+## Prediction curve: Effort
+
+```{r curve-effort, fig.width=6, fig.height=4.5}
+newdat <- data.frame(
+  Effort = seq(min(mousedeer$Effort), max(mousedeer$Effort), length.out = 100),
+  AverageDistance = mean(mousedeer$AverageDistance),
+  Habitat = "ESG"
+)
+newdat$Habitat <- factor(newdat$Habitat, levels = levels(mousedeer$Habitat))
+pred <- predict(model, newdata = newdat, type = "link", se.fit = TRUE)
+newdat$fit <- plogis(pred$fit)
+newdat$lower <- plogis(pred$fit - 1.96 * pred$se.fit)
+newdat$upper <- plogis(pred$fit + 1.96 * pred$se.fit)
+
+p_effort <- ggplot(newdat, aes(x = Effort, y = fit)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), fill = "steelblue", alpha = 0.2) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  geom_point(data = mousedeer, aes(x = Effort, y = Detected), inherit.aes = FALSE) +
+  labs(title = "Predicted Probability of Detection vs. Effort",
+       x = "Survey Effort (days)", y = "Predicted Probability of Detection") +
+  ylim(0, 1) +
+  theme_minimal()
+
+p_effort
+ggsave("curve_effort.pdf", p_effort, width = 6, height = 4.5)
+```
+
+## Prediction curve: Average Distance
+
+```{r curve-avgdist, fig.width=6, fig.height=4.5}
+newdat2 <- data.frame(
+  Effort = mean(mousedeer$Effort),
+  AverageDistance = seq(min(mousedeer$AverageDistance), max(mousedeer$AverageDistance), length.out = 100),
+  Habitat = "ESG"
+)
+newdat2$Habitat <- factor(newdat2$Habitat, levels = levels(mousedeer$Habitat))
+pred2 <- predict(model, newdata = newdat2, type = "link", se.fit = TRUE)
+newdat2$fit <- plogis(pred2$fit)
+newdat2$lower <- plogis(pred2$fit - 1.96 * pred2$se.fit)
+newdat2$upper <- plogis(pred2$fit + 1.96 * pred2$se.fit)
+
+p_dist <- ggplot(newdat2, aes(x = AverageDistance, y = fit)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), fill = "darkorange", alpha = 0.2) +
+  geom_line(color = "darkorange", linewidth = 1) +
+  geom_point(data = mousedeer, aes(x = AverageDistance, y = Detected), inherit.aes = FALSE) +
+  labs(title = "Predicted Probability of Detection vs. Average Distance",
+       x = "Average Distance (m)", y = "Predicted Probability of Detection") +
+  ylim(0, 1) +
+  theme_minimal()
+
+p_dist
+ggsave("curve_avgdistance.pdf", p_dist, width = 6, height = 4.5)
+```
+
+## Prediction curve: Habitat
+
+```{r curve-habitat, fig.width=6, fig.height=4.5}
+newdat3 <- data.frame(
+  Effort = mean(mousedeer$Effort),
+  AverageDistance = mean(mousedeer$AverageDistance),
+  Habitat = levels(mousedeer$Habitat)
+)
+newdat3$Habitat <- factor(newdat3$Habitat, levels = levels(mousedeer$Habitat))
+pred3 <- predict(model, newdata = newdat3, type = "link", se.fit = TRUE)
+newdat3$fit <- plogis(pred3$fit)
+newdat3$lower <- plogis(pred3$fit - 1.96 * pred3$se.fit)
+newdat3$upper <- plogis(pred3$fit + 1.96 * pred3$se.fit)
+
+p_hab <- ggplot(newdat3, aes(x = Habitat, y = fit)) +
+  geom_pointrange(aes(ymin = lower, ymax = upper), color = "darkgreen", linewidth = 1) +
+  labs(title = "Predicted Probability of Detection by Habitat Type",
+       x = "Habitat Type", y = "Predicted Probability of Detection") +
+  ylim(0, 1) +
+  theme_minimal()
+
+p_hab
+ggsave("curve_habitat.pdf", p_hab, width = 6, height = 4.5)
+```
+
+## Model summary
+
+```{r model-summary}
+summary(model)
+
+# Odds ratios and 95% confidence intervals
+exp(coef(model))
+exp(confint(model))
+```
