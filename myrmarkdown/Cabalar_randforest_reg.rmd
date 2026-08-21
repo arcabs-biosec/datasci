@@ -1,0 +1,130 @@
+---
+title: "Random Forest"
+author: "Katrina Mae A. Cabalar"
+date: "21 August 2026"
+output: html_document
+---
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(tidyverse)
+library(randomForest)
+library(viridis)
+```
+
+## Read and prep data
+
+```{r data}
+calls <- read.csv("~/Desktop/LIFEDAT/call_data_12October2025.csv", stringsAsFactors = FALSE)
+calls <- calls[, -1]
+calls$Species <- as.factor(calls$Species)
+str(calls)
+table(calls$Species)
+```
+
+## Hyperparameter grid search 
+
+```{r grid-search}
+set.seed(123)
+n_predictors <- ncol(calls) - 1
+
+rf_grid <- expand.grid(
+  mtry     = seq(2, n_predictors, by = 1),
+  ntree    = c(100, 300, 500, 700, 1000),
+  nodesize = c(1, 3, 5)
+)
+rf_grid$OOB_error <- NA_real_
+
+for (i in seq_len(nrow(rf_grid))) {
+  fit <- randomForest(
+    Species ~ .,
+    data       = calls,
+    mtry       = rf_grid$mtry[i],
+    ntree      = rf_grid$ntree[i],
+    nodesize   = rf_grid$nodesize[i],
+    importance = FALSE
+  )
+  rf_grid$OOB_error[i] <- fit$err.rate[nrow(fit$err.rate), "OOB"]
+}
+
+head(rf_grid[order(rf_grid$OOB_error), ], 10)
+```
+
+## Best hyperparameters
+
+```{r best-params}
+best_params <- rf_grid[which.min(rf_grid$OOB_error), ]
+best_params
+
+best_mtry     <- best_params$mtry
+best_ntree    <- best_params$ntree
+best_nodesize <- best_params$nodesize
+```
+
+## Final model
+
+```{r final-model}
+set.seed(123)
+final_rf <- randomForest(
+  Species ~ .,
+  data       = calls,
+  mtry       = best_mtry,
+  ntree      = best_ntree,
+  nodesize   = best_nodesize,
+  importance = TRUE,
+  proximity  = TRUE
+)
+final_rf
+```
+
+## Variable importance
+
+```{r var-importance}
+importance_df <- as.data.frame(importance(final_rf))
+importance_df$Variable <- rownames(importance_df)
+
+ggplot(importance_df, aes(x = reorder(Variable, MeanDecreaseGini),
+                          y = MeanDecreaseGini)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(
+    title = "Variable Importance (Mean Decrease in Gini)",
+    x = "Predictor",
+    y = "Mean Decrease Gini"
+  ) +
+  theme_minimal()
+```
+
+## Predicted class probabilities
+
+```{r predicted-probs}
+pred_probs <- as.data.frame(predict(final_rf, type = "prob"))
+pred_probs$Observation <- 1:nrow(pred_probs)
+pred_probs$Actual_Species <- calls$Species
+
+pred_probs_long <- pred_probs %>%
+  pivot_longer(
+    cols = -c(Observation, Actual_Species),
+    names_to = "Predicted_Species",
+    values_to = "Probability"
+  ) %>%
+  arrange(Actual_Species, Observation)
+
+pred_probs_long$Observation <- factor(
+  pred_probs_long$Observation,
+  levels = unique(pred_probs_long$Observation)
+)
+
+ggplot(pred_probs_long, aes(x = Observation, y = Predicted_Species, fill = Probability)) +
+  geom_tile(color = "white") +
+  scale_fill_viridis(option = "magma", limits = c(0, 1)) +
+  facet_grid(~ Actual_Species, scales = "free_x", space = "free_x") +
+  labs(
+    title = "Predicted Class Probabilities by Observation",
+    subtitle = "Faceted by true (actual) species",
+    x = "Observation",
+    y = "Predicted Species Probability"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+```
