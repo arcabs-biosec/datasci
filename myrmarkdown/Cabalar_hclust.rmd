@@ -1,0 +1,209 @@
+---
+title: "Activity 8: Hierarchical Clustering"
+author: "Katrina Mae A. Cabalar"
+date: "21 August 2026"
+output: html_document
+---
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(tidyverse)
+library(cluster)
+library(factoextra)
+library(dendextend)
+```
+
+## Read and prep data
+
+```{r data}
+morpho <- read.csv("~/Desktop/LIFEDAT/morphology_data.csv", stringsAsFactors = FALSE)
+str(morpho)
+
+pop_labels <- morpho$Pop
+
+morpho_num <- morpho %>%
+  select(-Pop, -Sex)
+str(morpho_num)
+
+sum(is.na(morpho_num))
+complete_rows <- complete.cases(morpho_num)
+morpho_num  <- morpho_num[complete_rows, ]
+pop_labels  <- pop_labels[complete_rows]
+sum(is.na(morpho_num))
+```
+
+## Distance matrix
+
+```{r distance}
+morpho_scaled <- scale(morpho_num)
+euc_dist <- dist(morpho_scaled, method = "euclidean")
+```
+
+## Hierarchical clustering: Ward's and Single Linkage
+
+```{r hclust}
+hc_ward   <- hclust(euc_dist, method = "ward.D2")
+hc_single <- hclust(euc_dist, method = "single")
+```
+
+## Silhouette score across K = 2 to 10
+
+```{r silhouette-loop}
+k_values <- 2:10
+
+sil_results <- data.frame(
+  K = rep(k_values, times = 2),
+  Method = rep(c("Ward", "Single"), each = length(k_values)),
+  Avg_Silhouette = NA_real_
+)
+
+row_i <- 1
+for (method_hc in list(Ward = hc_ward, Single = hc_single)) {
+  for (k in k_values) {
+    clusters_k <- cutree(method_hc, k = k)
+    sil <- silhouette(clusters_k, euc_dist)
+    sil_results$Avg_Silhouette[row_i] <- mean(sil[, "sil_width"])
+    row_i <- row_i + 1
+  }
+}
+
+sil_results
+```
+
+```{r silhouette-plot}
+ggplot(sil_results, aes(x = K, y = Avg_Silhouette, color = Method)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  scale_x_continuous(breaks = k_values) +
+  labs(
+    title = "Average Silhouette Score by K",
+    subtitle = "Ward's vs. Single Linkage",
+    x = "Number of Clusters (K)",
+    y = "Average Silhouette Width"
+  ) +
+  theme_minimal()
+```
+
+```{r optimal-k}
+best_k_ward   <- sil_results %>% filter(Method == "Ward")   %>% slice_max(Avg_Silhouette, n = 1) %>% pull(K)
+best_k_single <- sil_results %>% filter(Method == "Single") %>% slice_max(Avg_Silhouette, n = 1) %>% pull(K)
+
+best_k_ward
+best_k_single
+```
+
+## Dendrograms with optimal K highlighted
+
+```{r dendro-ward, fig.height=6, fig.width=10}
+fviz_dend(
+  hc_ward,
+  k = best_k_ward,
+  cex = 0.5,
+  rect = TRUE,
+  rect_fill = TRUE,
+  rect_border = "jco",
+  k_colors = "jco",
+  main = paste0("Ward's Method Dendrogram (Optimal K = ", best_k_ward, ")")
+)
+```
+
+```{r dendro-single, fig.height=6, fig.width=10}
+fviz_dend(
+  hc_single,
+  k = best_k_single,
+  cex = 0.5,
+  rect = TRUE,
+  rect_fill = TRUE,
+  rect_border = "jco",
+  k_colors = "jco",
+  main = paste0("Single Linkage Dendrogram (Optimal K = ", best_k_single, ")")
+)
+```
+
+## K-means vs. Hierarchical
+
+```{r kmeans-rerun}
+best_k_kmeans <- 3
+
+set.seed(42)
+km_result <- kmeans(morpho_scaled, centers = best_k_kmeans, nstart = 25)
+km_result$size
+```
+
+```{r kmeans-comparison}
+hc_ward_clusters   <- cutree(hc_ward,   k = best_k_kmeans)
+hc_single_clusters <- cutree(hc_single, k = best_k_kmeans)
+
+table(KMeans = km_result$cluster, Ward = hc_ward_clusters)
+table(KMeans = km_result$cluster, Single = hc_single_clusters)
+```
+
+```{r agreement-check}
+if (!require(mclust, quietly = TRUE)) install.packages("mclust")
+library(mclust)
+
+adjustedRandIndex(km_result$cluster, hc_ward_clusters)
+adjustedRandIndex(km_result$cluster, hc_single_clusters)
+```
+
+```{r compare-to-pop}
+table(Pop = pop_labels, KMeans = km_result$cluster)
+table(Pop = pop_labels, Ward   = hc_ward_clusters)
+table(Pop = pop_labels, Single = hc_single_clusters)
+```
+
+## Are the clusters consistent?
+
+**What to expect going in.** Activity 7's K-means (K = 3, seed 42) split
+the 202 individuals into groups of 73, 34, and 95, explaining about 43.7%
+of the total variance (between_SS / total_SS). `Pop` itself splits as
+Luzon = 93, Mindanao = 72, Palawan = 37 -- close to, but not identical to,
+the K-means group sizes, which is already a hint that the morphological
+clusters don't map onto population one-to-one.
+
+**Ward's linkage vs. K-means.** Because Ward's method minimizes
+within-cluster variance at each merge (much like K-means minimizes
+within-cluster sum of squares), the two usually agree reasonably well when
+the data have compact, roughly-spherical groups.
+
+**Single linkage vs. K-means.** Single linkage merges clusters based on the
+*closest pair* of points between them, which makes it prone to "chaining"
+-- a few intermediate individuals can string two otherwise distinct groups
+into one long cluster, or one dominant cluster absorbs almost everything
+while a couple of outliers get isolated as their own tiny "cluster." If the
+Single-linkage cross-tab shows one huge cluster and one or two
+singleton/near-singleton clusters, that's chaining in action -- and it will
+show up as a low ARI against K-means even though the two methods aren't
+necessarily "wrong," just sensitive to different things.
+
+**If the clusters are not consistent, what's driving it:**
+
+- **Different objective functions.** K-means and Ward's both try to
+  minimize within-group variance, but K-means re-optimizes centroids
+  iteratively and can escape local groupings hierarchical merging can't
+  undo; Ward's makes irreversible merge decisions bottom-up. Single linkage
+  optimizes for nothing but nearest-neighbor distance, so it isn't really
+  compatible with the other two.
+- **Randomness in initialization.** K-means depends on the starting
+  centroids; `nstart = 25` mitigates this but doesn't eliminate all
+  sensitivity, whereas hierarchical clustering is fully deterministic given
+  a distance matrix and linkage rule.
+- **Shape assumptions.** K-means assumes clusters are roughly spherical and
+  similar in size/variance; if the true morphological groups are elongated,
+  nested, or very unequal in spread, K-means can badly split or merge them
+  in ways hierarchical clustering (especially Ward's) may not.
+
+**Why this matters biologically.** If Ward's and K-means agree reasonably
+well with each other but neither agrees particularly well with `Pop`, that
+suggests the *morphological* variation in this dataset doesn't line up
+cleanly with population/locality -- i.e., morphology may be shaped more by
+sex, individual variation, or measurement noise than by population-level
+divergence. Conversely, if Single linkage disagrees sharply with both
+K-means and Ward's, that disagreement is more likely a methodological
+artifact (chaining) than a real alternative biological signal, and it would
+be a mistake to read biological meaning into it without first checking for
+that artifact. In general: when two conceptually similar methods (K-means,
+Ward's) agree but a third, less-comparable method (Single) disagrees, trust
+the agreement between the first two more than the outlier -- and always
+cross-check any clustering result against a known grouping variable like
+`Pop` before treating it as evidence of a "real" biological pattern.
