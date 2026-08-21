@@ -20,4 +20,6 @@ Activity 11: https://arcabs-biosec.github.io/datasci/myrmarkdown/Cabalar_linear_
 
 Activity 12: https://arcabs-biosec.github.io/datasci/myrmarkdown/Cabalar_logistic_reg.html
 
+Activity 13: https://arcabs-biosec.github.io/datasci/myrmarkdown/Cabalar_randforest_reg.html
+
 Activity 14: https://arcabs-biosec.github.io/datasci/myrmarkdown/Cabalar%20Salazar%20Wang_gradient_boost.html
